@@ -12,13 +12,20 @@ declare(strict_types=1);
 namespace PhpFlo\Core;
 
 use PhpFlo\Common\ComponentBuilderInterface;
+use PhpFlo\Common\EdgeEndSpecInterface;
+use PhpFlo\Common\Exception\NodeDoesNotExistException;
 use PhpFlo\Common\NetworkInterface;
+use PhpFlo\Common\NodeSpecInterface;
+use PhpFlo\Common\PortInterface;
 use PhpFlo\Common\SocketInterface;
 use PhpFlo\Common\Exception\FlowException;
 use PhpFlo\Common\Exception\IncompatibleDatatypeException;
 use PhpFlo\Common\Exception\InvalidDefinitionException;
 use PhpFlo\Common\Exception\InvalidTypeException;
+use PhpFlo\Core\Interaction\EdgeEndSpec;
 use PhpFlo\Core\Interaction\InternalSocket;
+use PhpFlo\Core\Interaction\NetworkProcess;
+use PhpFlo\Core\Interaction\NetworkProcessInterface;
 use PhpFlo\Core\Interaction\Port;
 
 /**
@@ -33,12 +40,12 @@ class Network implements NetworkInterface
     use HookableNetworkTrait;
 
     /**
-     * @var array
+     * @var NetworkProcessInterface[]
      */
     private $processes;
 
     /**
-     * @var array
+     * @var InternalSocket[]
      */
     private $connections;
 
@@ -63,7 +70,6 @@ class Network implements NetworkInterface
     public function __construct(ComponentBuilderInterface $builder)
     {
         $this->builder = $builder;
-        $this->startup();
 
         $this->processes = [];
         $this->connections = [];
@@ -74,53 +80,56 @@ class Network implements NetworkInterface
      */
     public function uptime()
     {
+        if( is_null($this->startupDate) )
+            return false;
         return $this->startupDate->diff($this->createDateTimeWithMilliseconds());
     }
 
     /**
-     * @param array $node
+     * @param NodeSpecInterface $node
      * @return NetworkInterface
      * @throws InvalidDefinitionException
      */
-    public function addNode(array $node): NetworkInterface
+    public function addNode(NodeSpecInterface $node): NetworkInterface
     {
-        if (isset($this->processes[$node[self::NODE_ID]])) {
-            return $this;
+        if (isset($this->processes[$node->getId()])) {
+            throw new InvalidDefinitionException(sprintf("Node with id '%s' already exists", $node->getId()));
         }
 
-        $process = [];
-        $process[self::NODE_ID] = $node[self::NODE_ID];
-
-        if (isset($node[self::COMPONENT])) {
-            $process[self::COMPONENT] = $this->builder->build($node[self::COMPONENT]);
-        }
-
-        $this->processes[$node[self::NODE_ID]] = $process;
-
-        return $this;
-    }
-
-    /**
-     * @param array $node
-     * @return NetworkInterface
-     */
-    public function removeNode(array $node): NetworkInterface
-    {
-        if (isset($this->processes[$node[self::NODE_ID]])) {
-            unset($this->processes[$node[self::NODE_ID]]);
-        }
+        $process = new NetworkProcess( $node, $this->builder->build($node->getComponent()) );
+        $this->processes[$node->getId()] = $process;
 
         return $this;
     }
 
     /**
      * @param string $id
-     * @return mixed|null
+     * @return NetworkInterface
+     * @throws InvalidDefinitionException
      */
-    public function getNode(string $id)
+    public function removeNode(string $id): NetworkInterface
+    {
+        $this->getNode($id);
+        $edges = $this->findEdgesByNode($id);
+        if( count($edges) )
+        {
+            throw new InvalidDefinitionException(sprintf("Node '%s' still has edges", $id) );
+        }
+
+        unset($this->processes[$id]);
+
+        return $this;
+    }
+
+    /**
+     * @param string $id
+     * @return NetworkProcessInterface
+     * @throws NodeDoesNotExistException
+     */
+    public function getNode(string $id): NetworkProcessInterface
     {
         if (!isset($this->processes[$id])) {
-            return null;
+            throw new NodeDoesNotExistException(sprintf("Node '%s' does not exist", $id) );
         }
 
         return $this->processes[$id];
@@ -135,68 +144,116 @@ class Network implements NetworkInterface
     }
 
     /**
-     * @param array $edge
+     * @param EdgeEndSpecInterface $source
+     * @param EdgeEndSpecInterface $target
      * @return NetworkInterface
+     * @throws IncompatibleDatatypeException
      * @throws InvalidDefinitionException
+     * @throws NodeDoesNotExistException
+     * @throws \PhpFlo\Common\Exception\PortException
      */
-    public function addEdge(array $edge): NetworkInterface
+    public function addEdge(EdgeEndSpecInterface $source, EdgeEndSpecInterface $target): NetworkInterface
     {
-        if (!isset($edge[self::SOURCE][self::NODE])) {
-            return $this->addInitial(
-                $edge[self::SOURCE][self::DATA],
-                $edge[self::TARGET][self::NODE],
-                $edge[self::TARGET][self::PORT]
+        try
+        {
+            $from = $this->getNode($source->getNodeId());
+        }
+        catch ( NodeDoesNotExistException $e )
+        {
+            throw new NodeDoesNotExistException(
+                "No process defined for source node {$source->getNodeId()}", $e->getCode(), $e
             );
         }
 
-        $from = $this->getNode($edge[self::SOURCE][self::NODE]);
-        if (!$from) {
-            throw new InvalidDefinitionException(
-                "No process defined for outbound node {$edge[self::SOURCE][self::NODE]}"
+        try
+        {
+            $to = $this->getNode($target->getNodeId());
+        }
+        catch ( NodeDoesNotExistException $e )
+        {
+            throw new NodeDoesNotExistException(
+                "No process defined for target node {$source->getNodeId()}", $e->getCode(), $e
             );
         }
 
-        $to = $this->getNode($edge[self::TARGET][self::NODE]);
-        if (!$to) {
-            throw new InvalidDefinitionException(
-                "No process defined for inbound node {$edge[self::TARGET][self::NODE]}"
-            );
-        }
-
-        $socket = $this->connectPorts($from, $to, $edge[self::SOURCE][self::PORT], $edge[self::TARGET][self::PORT]);
+        $socket = $this->connectPorts($from, $to, $source->getPortName(), $target->getPortName());
         $this->connections[] = $socket;
 
         return $this;
     }
 
+
     /**
-     * @param array $edge
-     * @return NetworkInterface
+     * @param string $nodeId
+     * @return EdgeEndSpec[][]
+     * @throws NodeDoesNotExistException
      */
-    public function removeEdge(array $edge): NetworkInterface
+    public function findEdgesByNode( string $nodeId )
     {
+        $node = $this->getNode($nodeId);
+        $edges = [];
         foreach ($this->connections as $index => $connection) {
-            if ($edge[self::TARGET][self::NODE] == $connection->to[self::PROCESS][self::NODE_ID]
-                && $edge[self::TARGET][self::PORT] == $connection->to[self::PROCESS][self::PORT]
-            ) {
-                $connection->to[self::PROCESS][self::COMPONENT]
-                    ->inPorts()
-                    ->get($edge[self::TARGET][self::PORT])
-                    ->detach($connection);
-                $this->connections = array_splice($this->connections, $index, 1);
+            if ($connection->to()[self::PROCESS] == $node) {
+                $edges[] = [
+                    self::SOURCE => new EdgeEndSpec( $connection->from()[self::PROCESS]->getId(), $connection->from()[self::PORT] ),
+                    self::TARGET => new EdgeEndSpec( $connection->to()[self::PROCESS]->getId(), $connection->to()[self::PORT] ),
+                ];
             }
 
-            if (isset($edge[self::SOURCE][self::NODE])) {
-                if ($edge[self::SOURCE][self::NODE] == $connection->from[self::PROCESS][self::NODE_ID]
-                    && $edge[self::SOURCE][self::PORT] == $connection->from[self::PROCESS][self::PORT]
-                ) {
-                    $connection->from[self::PROCESS][self::COMPONENT]
-                        ->inPorts()
-                        ->get($edge[self::SOURCE][self::PORT])
-                        ->detach($connection);
-                    $this->connections = array_splice($this->connections, $index, 1);
-                }
+            if (!isset($connection->from()[self::INITIAL_DATA]) && $connection->from()[self::PROCESS] == $node) {
+                $edges[] = [
+                    self::SOURCE => new EdgeEndSpec( $connection->from()[self::PROCESS]->getId(), $connection->from()[self::PORT] ),
+                    self::TARGET => new EdgeEndSpec( $connection->to()[self::PROCESS]->getId(), $connection->to()[self::PORT] ),
+                ];
             }
+        }
+        return $edges;
+    }
+
+    /**
+     * @param EdgeEndSpecInterface|null $source
+     * @param EdgeEndSpecInterface|null $target
+     * @return NetworkInterface
+     */
+    public function removeEdge(EdgeEndSpecInterface $source=null, EdgeEndSpecInterface $target=null): NetworkInterface
+    {
+        $doneSth = false;
+        foreach ($this->connections as $index => $connection) {
+//            var_dump($index);
+//            var_dump($connection);
+//            echo "\n\n\n\n";
+            if( (!isset($connection->from()[self::INITIAL_DATA]) &&       // if from[process] is not set, this is an initial "edge"
+                (is_null($source) ||
+                    $source->getNodeId() == $connection->from()[self::PROCESS]->getId() &&
+                    $source->getPortName() == $connection->from()[self::PORT])
+                )
+            && (is_null($target) || (
+                        $target->getNodeId() == $connection->to()[self::PROCESS]->getId() &&
+                        $target->getPortName() == $connection->to()[self::PORT])
+                )
+            )
+            {
+                $doneSth = true;
+                echo "REMOVING CONNECTION\n";
+                var_dump($connection);
+                $connection->to()[self::PROCESS]->getComponent()
+                    ->inPorts()
+                    ->get($connection->to()[self::PORT])
+                    ->detach($connection);
+                unset( $this->connections[$index] );
+
+                $connection->from()[self::PROCESS]->getComponent()
+                    ->outPorts()
+                    ->get($connection->from()[self::PORT])
+                    ->detach($connection);
+                unset( $this->connections[$index] );
+                echo "Connections afterwards: ";var_dump($this->connections);
+                echo "\n\n\n";
+            }
+        }
+        if( $doneSth )
+        {
+            $this->connections = array_values( $this->connections );
         }
 
         return $this;
@@ -204,34 +261,21 @@ class Network implements NetworkInterface
 
     /**
      * @param mixed $data
-     * @param string $node
-     * @param string $port
+     * @param EdgeEndSpecInterface $target
      * @return NetworkInterface
      * @throws InvalidDefinitionException
+     * @throws NodeDoesNotExistException
+     * @throws \PhpFlo\Common\Exception\PortException
      */
-    protected function addInitial($data, string $node, string $port): NetworkInterface
+    public function addInitial($data, EdgeEndSpecInterface $target): NetworkInterface
     {
-        $initializer = [
-            self::SOURCE => [
-                self::DATA => $data,
-            ],
-            self::TARGET => [
-                self::NODE => $node,
-                self::PORT => $port,
-            ],
-        ];
-
-        $to = $this->getNode($initializer[self::TARGET][self::NODE]);
-        if (!$to) {
-            throw new InvalidDefinitionException(
-                "No process defined for inbound node {$initializer[self::TARGET][self::NODE]}"
-            );
-        }
+        $to = $this->getNode($target->getNodeId());
 
         $socket = $this->addHooks(new InternalSocket());
-        $port = $this->connectInboundPort($socket, $to, $initializer[self::TARGET][self::PORT]);
+        $port = $this->connectInboundPort($socket, $to, $target->getPortName());
         $socket->connect();
-        $socket->send($initializer[self::SOURCE][self::DATA]);
+        $socket->from([self::INITIAL_DATA=>$data]);
+        $socket->send($data);
 
         // cleanup initialization
         $socket->disconnect();
@@ -243,14 +287,66 @@ class Network implements NetworkInterface
     }
 
     /**
+     * @param EdgeEndSpecInterface $target
+     * @return mixed
+     * @throws InvalidDefinitionException
+     */
+    public function getInitial(EdgeEndSpecInterface $target)
+    {
+        $node = $this->getNode($target->getNodeId());
+        foreach ($this->connections as $index => $connection)
+        {
+            if (isset($connection->from()[self::INITIAL_DATA]) &&
+                $connection->to()[self::PROCESS] == $node &&
+                $connection->to()[self::PORT] == $target->getPortName())
+            {
+                return $connection->from()[self::INITIAL_DATA];
+            }
+        }
+        throw new InvalidDefinitionException(sprintf("No initial to node '%s' and port '%s' found",
+            $target->getNodeId(), $target->getPortName()) );
+    }
+
+
+    /**
+     * @param EdgeEndSpecInterface $target
+     * @throws InvalidDefinitionException
+     */
+    public function removeInitial(EdgeEndSpecInterface $target)
+    {
+        $node = $this->getNode($target->getNodeId());
+        foreach ($this->connections as $index => $connection)
+        {
+            if (isset($connection->from()[self::INITIAL_DATA]) &&
+                $connection->to()[self::PROCESS] == $node &&
+                $connection->to()[self::PORT] == $target->getPortName())
+            {
+                echo "REMOVING INITIAL CONNECTION\n";
+                var_dump($connection);
+                $connection->to()[self::PROCESS]->getComponent()
+                    ->inPorts()
+                    ->get($connection->to()[self::PORT])
+                    ->detach($connection);
+                unset( $this->connections[$index] );
+                $this->connections = array_values( $this->connections );
+                return;
+            }
+        }
+        throw new InvalidDefinitionException(sprintf("No initial to node '%s' and port '%s' found",
+            $target->getNodeId(), $target->getPortName()) );
+    }
+
+    /**
      * Cleanup network state after runs.
      *
      * @return NetworkInterface
      */
     public function shutdown(): NetworkInterface
     {
+        $this->startupDate = null;
+
         foreach ($this->processes as $process) {
-            $process[self::COMPONENT]->shutdown();
+            $process->getComponent()->shutdown();
         }
 
         // explicitly destroy the $connections
@@ -260,7 +356,6 @@ class Network implements NetworkInterface
 
         $this->graph = null;
         $this->processes = [];
-        $this->startupDate = null;
         $this->connections = [];
 
         return $this;
@@ -298,81 +393,33 @@ class Network implements NetworkInterface
      */
     public function boot($graph): NetworkInterface
     {
-        switch (true) {
-            case (is_a($graph, Graph::class)):
-                break;
-            case (is_file($graph)):
-                $graph = Graph::loadFile($graph);
-                break;
-            case is_string($graph) && is_file($graph):
-                $graph = Graph::loadFile($graph);
-                break;
-            case (is_string($graph)):
-                $graph = Graph::loadString($graph);
-                break;
-            default:
-                throw new InvalidTypeException(
-                    "Graph has to be either a Graph object or a compatible definition file/string"
-                );
-        }
-
-        $graph->on(self::EVENT_ADD, [$this, 'addNode']);
-        $graph->on(self::EVENT_REMOVE, [$this, 'removeNode']);
-        $graph->on(self::EVENT_ADD_EDGE, [$this, 'addEdge']);
-        $graph->on(self::EVENT_REMOVE_EDGE, [$this, 'removeEdge']);
-
-        /** @todo think of caching graphs here, maybe */
-        $this->graph = $graph;
-        $this->loadGraph($graph);
+        throw new \Exception('Not implemented');
 
         return $this;
     }
 
     /**
-     * Load Graph into Network
-     *
-     * @param Graph $graph
-     */
-    private function loadGraph(Graph $graph)
-    {
-        foreach ($graph->nodes as $node) {
-            $this->addNode($node);
-        }
-
-        foreach ($graph->edges as $edge) {
-            $this->addEdge($edge);
-        }
-
-        foreach ($graph->initializers as $initializer) {
-            $this->addInitial(
-                $initializer[self::SOURCE][self::DATA],
-                $initializer[self::TARGET][self::NODE],
-                $initializer[self::TARGET][self::PORT]
-            );
-        }
-    }
-
-    /**
      * @param SocketInterface $socket
-     * @param array $process
+     * @param NetworkProcessInterface $to
      * @param string $port
+     * @return PortInterface
      * @throws InvalidDefinitionException
-     * @return mixed
+     * @throws \PhpFlo\Common\Exception\PortException
      */
-    private function connectInboundPort(SocketInterface $socket, array $process, string $port)
+    private function connectInboundPort(SocketInterface $socket, NetworkProcessInterface $to, string $port)
     {
-        if (!$process[self::COMPONENT]->inPorts()->has($port)) {
-            throw new InvalidDefinitionException("No inport {$port} defined for process {$process[self::NODE_ID]}");
+        if (!$to->getComponent()->inPorts()->has($port)) {
+            throw new InvalidDefinitionException("No inport {$port} defined for process {$to->getId()}");
         }
 
         $socket->to(
             [
-                self::PROCESS => $process,
+                self::PROCESS => $to,
                 self::PORT => $port,
             ]
         );
 
-        return $process[self::COMPONENT]
+        return $to->getComponent()
             ->inPorts()
             ->get($port)
             ->attach($socket);
@@ -381,26 +428,28 @@ class Network implements NetworkInterface
     /**
      * Connect out to inport and compare data types.
      *
-     * @param array $from
-     * @param array $to
+     * @param NetworkProcessInterface $from
+     * @param NetworkProcessInterface $to
      * @param string $edgeFrom
      * @param string $edgeTo
-     * @return NetworkInterface
+     * @return SocketInterface
      * @throws IncompatibleDatatypeException
      * @throws InvalidDefinitionException
+     * @throws \PhpFlo\Common\Exception\PortException
      */
     private function connectPorts(
-        array $from,
-        array $to,
+        NetworkProcessInterface $from,
+        NetworkProcessInterface $to,
         string $edgeFrom,
         string $edgeTo
-    ): NetworkInterface {
-        if (!$from[self::COMPONENT]->outPorts()->has($edgeFrom)) {
-            throw new InvalidDefinitionException("No outport {$edgeFrom} defined for process {$from[self::NODE_ID]}");
+    ): SocketInterface
+    {
+        if (!$from->getComponent()->outPorts()->has($edgeFrom)) {
+            throw new InvalidDefinitionException("No outport {$edgeFrom} defined for process {$from->getId()}");
         }
 
-        if (!$to[self::COMPONENT]->inPorts()->has($edgeTo)) {
-            throw new InvalidDefinitionException("No inport {$edgeTo} defined for process {$to[self::NODE_ID]}");
+        if (!$to->getComponent()->inPorts()->has($edgeTo)) {
+            throw new InvalidDefinitionException("No inport {$edgeTo} defined for process {$to->getId()}");
         }
 
         $socket = $this->addHooks(
@@ -416,22 +465,25 @@ class Network implements NetworkInterface
             )
         );
 
-        $fromType = $from[self::COMPONENT]->outPorts()->get($edgeFrom)->getAttribute('datatype');
-        $toType = $to[self::COMPONENT]->inPorts()->get($edgeTo)->getAttribute('datatype');
+        $fromType = $from->getComponent()->outPorts()->get($edgeFrom)->getAttribute('datatype');
+        $toType = $to->getComponent()->inPorts()->get($edgeTo)->getAttribute('datatype');
 
         if (!$this->hasValidPortType($fromType)) {
             throw new InvalidDefinitionException(
-                "Process {$from[self::NODE_ID]} has invalid outport type {$fromType}. Valid types: " .
+                "Process {$from->getId()} has invalid outport type {$fromType}. Valid types: " .
                 implode(', ', Port::$datatypes)
             );
         }
 
         if (!$this->hasValidPortType($toType)) {
             throw new InvalidDefinitionException(
-                "Process {$to[self::NODE_ID]} has invalid outport type {$toType}. Valid types: " .
+                "Process {$to->getId()} has invalid outport type {$toType}. Valid types: " .
                 implode(', ', Port::$datatypes)
             );
         }
+
+        /* @var string $fromType */
+        /* @var string $toType */
 
         // compare out and in ports for datatype definitions
         if (!Port::isCompatible($fromType, $toType)) {
@@ -441,10 +493,10 @@ class Network implements NetworkInterface
             );
         }
 
-        $from[self::COMPONENT]->outPorts()->get($edgeFrom)->attach($socket);
-        $to[self::COMPONENT]->inPorts()->get($edgeTo)->attach($socket);
+        $from->getComponent()->outPorts()->get($edgeFrom)->attach($socket);
+        $to->getComponent()->inPorts()->get($edgeTo)->attach($socket);
 
-        return $this;
+        return $socket;
     }
 
     /**
@@ -458,7 +510,7 @@ class Network implements NetworkInterface
     /**
      * Set startup timer.
      */
-    private function startup()
+    public function startup()
     {
         $this->startupDate = $this->createDateTimeWithMilliseconds();
     }

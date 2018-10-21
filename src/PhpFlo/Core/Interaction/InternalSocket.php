@@ -14,6 +14,7 @@ namespace PhpFlo\Core\Interaction;
 use Evenement\EventEmitter;
 use PhpFlo\Common\NetworkInterface as Net;
 use PhpFlo\Common\SocketInterface;
+use PhpFlo\Core\Network;
 
 /**
  * Class InternalSocket
@@ -161,4 +162,18 @@ class InternalSocket extends EventEmitter implements SocketInterface
 
         return $this;
     }
+
+    public function __debugInfo()
+    {
+        return [
+            'toProcess' => isset($this->to[Network::PROCESS]) ?
+                (is_object($this->to[Network::PROCESS]) ? $this->to[Network::PROCESS]->__toString() : var_dump_string($this->to[Network::PROCESS])) : NULL,
+            'toPort' => isset($this->to[Network::PORT]) ? $this->to[Network::PORT] : NULL,
+            'fromProcess' => isset($this->from[Network::PROCESS]) ?
+                (is_object($this->from[Network::PROCESS]) ? $this->from[Network::PROCESS]->__toString() : var_dump_string($this->from[Network::PROCESS])) : NULL,
+            'fromPort' => isset($this->from[Network::PORT]) ? $this->from[Network::PORT] : NULL,
+            'fromInitialData' => isset($this->from[Network::INITIAL_DATA]) ? var_export($this->from[Network::INITIAL_DATA], true) : NULL,
+        ];
+    }
+
 }

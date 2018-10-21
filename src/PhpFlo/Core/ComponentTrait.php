@@ -33,11 +33,6 @@ trait ComponentTrait
     private $outPorts = null;
 
     /**
-     * @var string
-     */
-    protected $description = "";
-
-    /**
      * @return string
      */
     public function getDescription(): string

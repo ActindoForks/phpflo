@@ -10,7 +10,10 @@
 declare(strict_types=1);
 namespace PhpFlo\Common;
 
+use PhpFlo\Common\Exception\InvalidDefinitionException;
+use PhpFlo\Common\Exception\NodeDoesNotExistException;
 use PhpFlo\Core\Graph;
+use PhpFlo\Core\Interaction\NetworkProcessInterface;
 
 /**
  * Interface NetworkInterface
@@ -23,6 +26,7 @@ interface NetworkInterface extends HookableNetworkInterface
     const SOURCE = 'from';
     const TARGET = 'to';
     const NODE_ID = 'id';
+    const METADATA = 'metadata';
     const COMPONENT = 'component';
     const PROCESS = 'process';
     const DATA = 'data';
@@ -41,19 +45,21 @@ interface NetworkInterface extends HookableNetworkInterface
     const BEGIN_GROUP = 'begin.group';
     const END_GROUP = 'end.group';
 
-    /**
-     * @param array $edge
-     * @return NetworkInterface
-     * @throws InvalidDefinitionException
-     */
-    public function addEdge(array $edge): NetworkInterface;
+    const INITIAL_DATA = 'initial_data';
 
     /**
-     * @param array $node
+     * @param EdgeEndSpecInterface $source
+     * @param EdgeEndSpecInterface $target
+     * @return NetworkInterface
+     */
+    public function addEdge(EdgeEndSpecInterface $source, EdgeEndSpecInterface $target): NetworkInterface;
+
+    /**
+     * @param NodeSpecInterface $node
      * @return NetworkInterface
      * @throws InvalidDefinitionException
      */
-    public function addNode(array $node): NetworkInterface;
+    public function addNode(NodeSpecInterface $node): NetworkInterface;
 
     /**
      * Add a flow definition as Graph object or definition file/string
@@ -72,21 +78,33 @@ interface NetworkInterface extends HookableNetworkInterface
 
     /**
      * @param string $id
-     * @return mixed|null
+     * @return NetworkProcessInterface
+     * @throws NodeDoesNotExistException
      */
-    public function getNode(string $id);
+    public function getNode(string $id): NetworkProcessInterface;
 
     /**
-     * @param array $edge
+     * @param EdgeEndSpecInterface|null $source
+     * @param EdgeEndSpecInterface|null $target
      * @return NetworkInterface
      */
-    public function removeEdge(array $edge): NetworkInterface;
+    public function removeEdge(EdgeEndSpecInterface $source=null, EdgeEndSpecInterface $target=null): NetworkInterface;
 
     /**
      * @param array $node
      * @return NetworkInterface
      */
-    public function removeNode(array $node): NetworkInterface;
+    public function removeNode(string $id): NetworkInterface;
+
+    /**
+     * @param mixed $data
+     * @param EdgeEndSpecInterface $target
+     * @return NetworkInterface
+     * @throws InvalidDefinitionException
+     * @throws NodeDoesNotExistException
+     * @throws \PhpFlo\Common\Exception\PortException
+     */
+    public function addInitial($data, EdgeEndSpecInterface $target): NetworkInterface;
 
     /**
      * Add initialization data
@@ -110,4 +128,15 @@ interface NetworkInterface extends HookableNetworkInterface
      * @return bool|\DateInterval
      */
     public function uptime();
+
+    /**
+     * @param EdgeEndSpecInterface $target
+     * @return mixed
+     */
+    public function getInitial(EdgeEndSpecInterface $target);
+
+    /**
+     * @param EdgeEndSpecInterface $target
+     */
+    public function removeInitial(EdgeEndSpecInterface $target);
 }
