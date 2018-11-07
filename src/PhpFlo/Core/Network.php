@@ -12,7 +12,9 @@ declare(strict_types=1);
 namespace PhpFlo\Core;
 
 use PhpFlo\Common\ComponentBuilderInterface;
+use PhpFlo\Common\ComponentInterface;
 use PhpFlo\Common\EdgeEndSpecInterface;
+use PhpFlo\Common\Exception\EdgeDoesNotExistException;
 use PhpFlo\Common\Exception\NodeDoesNotExistException;
 use PhpFlo\Common\NetworkInterface;
 use PhpFlo\Common\NodeSpecInterface;
@@ -27,6 +29,7 @@ use PhpFlo\Core\Interaction\InternalSocket;
 use PhpFlo\Core\Interaction\NetworkProcess;
 use PhpFlo\Core\Interaction\NetworkProcessInterface;
 use PhpFlo\Core\Interaction\Port;
+use PhpFlo\Core\Interaction\PortRegistry;
 
 /**
  * Builds the concrete network based on graph.
@@ -35,9 +38,12 @@ use PhpFlo\Core\Interaction\Port;
  * @author Henri Bergius <henri.bergius@iki.fi>
  * @author Marc Aschmann <maschmann@gmail.com>
  */
-class Network implements NetworkInterface
+class Network implements NetworkInterface, ComponentInterface
 {
     use HookableNetworkTrait;
+    use ComponentTrait {
+        shutdown as componentTraitShutdown;
+    }
 
     /**
      * @var NetworkProcessInterface[]
@@ -45,7 +51,7 @@ class Network implements NetworkInterface
     private $processes;
 
     /**
-     * @var InternalSocket[]
+     * @var SocketInterface[]
      */
     private $connections;
 
@@ -65,14 +71,43 @@ class Network implements NetworkInterface
     private $builder;
 
     /**
-     * @param ComponentBuilderInterface $builder
+     * @var bool $debug
      */
-    public function __construct(ComponentBuilderInterface $builder)
+    private $debug = false;
+
+    /**
+     * @var string $name
+     */
+    private $name;
+
+    /**
+     * @var string $description
+     */
+    private $description = '';
+
+    /**
+     * @var PortRegistry $inPorts
+     */
+    private $inPorts;
+
+    /**
+     * @var PortRegistry $outPorts
+     */
+    private $outPorts;
+
+    /**
+     * @param ComponentBuilderInterface $builder
+     * @param string $name
+     */
+    public function __construct(ComponentBuilderInterface $builder, string $name)
     {
         $this->builder = $builder;
+        $this->name = $name;
 
         $this->processes = [];
         $this->connections = [];
+        $this->inPorts = new PortRegistry();
+        $this->outPorts = new PortRegistry();
     }
 
     /**
@@ -83,6 +118,34 @@ class Network implements NetworkInterface
         if( is_null($this->startupDate) )
             return false;
         return $this->startupDate->diff($this->createDateTimeWithMilliseconds());
+    }
+
+    /**
+     * @return bool
+     */
+    public function isStarted(): bool
+    {
+        return is_null($this->startupDate) ? false : true;
+    }
+
+    /**
+     * @return bool
+     */
+    public function isRunning(): bool
+    {
+        // TODO: we provide running false at the moment, as when we are able to get called no node is processing data (as network is a single thread) :-)
+        // TODO: this is of cause overly simplistic, as there may be data waiting on in- and/or outports using real sockets
+        return false;
+    }
+
+    /**
+     * @return bool|string
+     */
+    public function getStartupTime()
+    {
+        if( is_null($this->startupDate) )
+            return false;
+        return $this->startupDate->format('U.u');
     }
 
     /**
@@ -146,13 +209,14 @@ class Network implements NetworkInterface
     /**
      * @param EdgeEndSpecInterface $source
      * @param EdgeEndSpecInterface $target
+     * @param array|null $metadata
      * @return NetworkInterface
      * @throws IncompatibleDatatypeException
      * @throws InvalidDefinitionException
      * @throws NodeDoesNotExistException
      * @throws \PhpFlo\Common\Exception\PortException
      */
-    public function addEdge(EdgeEndSpecInterface $source, EdgeEndSpecInterface $target): NetworkInterface
+    public function addEdge(EdgeEndSpecInterface $source, EdgeEndSpecInterface $target, array $metadata=null): NetworkInterface
     {
         try
         {
@@ -172,12 +236,32 @@ class Network implements NetworkInterface
         catch ( NodeDoesNotExistException $e )
         {
             throw new NodeDoesNotExistException(
-                "No process defined for target node {$source->getNodeId()}", $e->getCode(), $e
+                "No process defined for target node {$target->getNodeId()}", $e->getCode(), $e
             );
         }
 
-        $socket = $this->connectPorts($from, $to, $source->getPortName(), $target->getPortName());
+        $socket = $this->connectPorts($from, $to, $source->getPortName(), $target->getPortName(),
+            is_array($metadata) ? $metadata : []);
         $this->connections[] = $socket;
+
+        return $this;
+    }
+
+    /**
+     * @param EdgeEndSpecInterface $source
+     * @param EdgeEndSpecInterface $target
+     * @param array $metadata
+     * @return NetworkInterface
+     * @throws EdgeDoesNotExistException
+     */
+    public function changeEdge(EdgeEndSpecInterface $source, EdgeEndSpecInterface $target, array $metadata = []): NetworkInterface
+    {
+        $edges = $this->findEdges( $source, $target );
+        if( count($edges) != 1 )
+        {
+            throw new EdgeDoesNotExistException();
+        }
+        $edges[0]->mergeMetadata( $metadata );
 
         return $this;
     }
@@ -213,15 +297,39 @@ class Network implements NetworkInterface
     /**
      * @param EdgeEndSpecInterface|null $source
      * @param EdgeEndSpecInterface|null $target
+     * @return SocketInterface[]
+     */
+    protected function findEdges(EdgeEndSpecInterface $source=null, EdgeEndSpecInterface $target=null): array
+    {
+        /* @var SocketInterface[] $edges */
+        $edges = [];
+        foreach ($this->connections as $index => $connection) {
+            if( (!isset($connection->from()[self::INITIAL_DATA]) &&       // if from[process] is not set, this is an initial "edge"
+                    (is_null($source) ||
+                        $source->getNodeId() == $connection->from()[self::PROCESS]->getId() &&
+                        $source->getPortName() == $connection->from()[self::PORT])
+                )
+                && (is_null($target) || (
+                        $target->getNodeId() == $connection->to()[self::PROCESS]->getId() &&
+                        $target->getPortName() == $connection->to()[self::PORT])
+                )
+            )
+            {
+                $edges[] = $connection;
+            }
+        }
+        return $edges;
+    }
+
+    /**
+     * @param EdgeEndSpecInterface|null $source
+     * @param EdgeEndSpecInterface|null $target
      * @return NetworkInterface
      */
     public function removeEdge(EdgeEndSpecInterface $source=null, EdgeEndSpecInterface $target=null): NetworkInterface
     {
         $doneSth = false;
         foreach ($this->connections as $index => $connection) {
-//            var_dump($index);
-//            var_dump($connection);
-//            echo "\n\n\n\n";
             if( (!isset($connection->from()[self::INITIAL_DATA]) &&       // if from[process] is not set, this is an initial "edge"
                 (is_null($source) ||
                     $source->getNodeId() == $connection->from()[self::PROCESS]->getId() &&
@@ -275,11 +383,11 @@ class Network implements NetworkInterface
         $port = $this->connectInboundPort($socket, $to, $target->getPortName());
         $socket->connect();
         $socket->from([self::INITIAL_DATA=>$data]);
-        $socket->send($data);
+//        $socket->send($data);
 
         // cleanup initialization
-        $socket->disconnect();
-        $port->detach($socket);
+//        $socket->disconnect();
+//        $port->detach($socket);
 
         $this->connections[] = $socket;
 
@@ -344,6 +452,8 @@ class Network implements NetworkInterface
     public function shutdown(): NetworkInterface
     {
         $this->startupDate = null;
+
+        $this->componentTraitShutdown();
 
         foreach ($this->processes as $process) {
             $process->getComponent()->shutdown();
@@ -432,6 +542,7 @@ class Network implements NetworkInterface
      * @param NetworkProcessInterface $to
      * @param string $edgeFrom
      * @param string $edgeTo
+     * @param array $metadata
      * @return SocketInterface
      * @throws IncompatibleDatatypeException
      * @throws InvalidDefinitionException
@@ -441,7 +552,8 @@ class Network implements NetworkInterface
         NetworkProcessInterface $from,
         NetworkProcessInterface $to,
         string $edgeFrom,
-        string $edgeTo
+        string $edgeTo,
+        array $metadata = []
     ): SocketInterface
     {
         if (!$from->getComponent()->outPorts()->has($edgeFrom)) {
@@ -457,11 +569,11 @@ class Network implements NetworkInterface
                 [
                     self::PROCESS => $from,
                     self::PORT => $edgeFrom,
-                ],
-                [
+                ], [
                     self::PROCESS => $to,
                     self::PORT => $edgeTo,
-                ]
+                ],
+                $metadata
             )
         );
 
@@ -508,11 +620,19 @@ class Network implements NetworkInterface
     }
 
     /**
-     * Set startup timer.
+     * Start network
      */
     public function startup()
     {
         $this->startupDate = $this->createDateTimeWithMilliseconds();
+        foreach ($this->connections as $index => $connection)
+        {
+            if (isset($connection->from()[self::INITIAL_DATA]) )
+            {
+                $connection->send($connection->from()[self::INITIAL_DATA]);
+//                  $connection->disconnect();
+            }
+        }
     }
 
     /**
@@ -524,5 +644,56 @@ class Network implements NetworkInterface
     private function hasValidPortType($type): bool
     {
         return in_array($type, Port::$datatypes);
+    }
+
+    /**
+     * @return string
+     */
+    public function getName(): string
+    {
+        return $this->name;
+    }
+
+
+
+    /**
+     * @return bool
+     */
+    public function isDebug(): bool
+    {
+        return $this->debug;
+    }
+
+    /**
+     * @param bool $enable
+     */
+    public function setDebug( bool $enable )
+    {
+        $this->debug = !!$enable;
+    }
+
+
+    /**
+     * @return string
+     */
+    public function getDescription(): string
+    {
+        return $this->description;
+    }
+
+    /**
+     * @return PortRegistry
+     */
+    public function inPorts(): PortRegistry
+    {
+        return $this->inPorts;
+    }
+
+    /**
+     * @return PortRegistry
+     */
+    public function outPorts(): PortRegistry
+    {
+        return $this->outPorts;
     }
 }

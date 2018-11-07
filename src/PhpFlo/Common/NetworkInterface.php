@@ -10,6 +10,8 @@
 declare(strict_types=1);
 namespace PhpFlo\Common;
 
+use PhpFlo\Common\Exception\EdgeDoesNotExistException;
+use PhpFlo\Common\Exception\FlowException;
 use PhpFlo\Common\Exception\InvalidDefinitionException;
 use PhpFlo\Common\Exception\NodeDoesNotExistException;
 use PhpFlo\Core\Graph;
@@ -50,9 +52,19 @@ interface NetworkInterface extends HookableNetworkInterface
     /**
      * @param EdgeEndSpecInterface $source
      * @param EdgeEndSpecInterface $target
+     * @param array|null $metadata
      * @return NetworkInterface
      */
-    public function addEdge(EdgeEndSpecInterface $source, EdgeEndSpecInterface $target): NetworkInterface;
+    public function addEdge(EdgeEndSpecInterface $source, EdgeEndSpecInterface $target, array $metadata=null): NetworkInterface;
+
+    /**
+     * @param EdgeEndSpecInterface $source
+     * @param EdgeEndSpecInterface $target
+     * @param array $metadata
+     * @return NetworkInterface
+     * @throws EdgeDoesNotExistException
+     */
+    public function changeEdge(EdgeEndSpecInterface $source, EdgeEndSpecInterface $target, array $metadata = []): NetworkInterface;
 
     /**
      * @param NodeSpecInterface $node
@@ -130,6 +142,21 @@ interface NetworkInterface extends HookableNetworkInterface
     public function uptime();
 
     /**
+     * @return bool
+     */
+    public function isStarted(): bool;
+
+    /**
+     * @return bool
+     */
+    public function isRunning(): bool;
+
+    /**
+     * @return bool|string
+     */
+    public function getStartupTime();
+
+    /**
      * @param EdgeEndSpecInterface $target
      * @return mixed
      */
@@ -139,4 +166,25 @@ interface NetworkInterface extends HookableNetworkInterface
      * @param EdgeEndSpecInterface $target
      */
     public function removeInitial(EdgeEndSpecInterface $target);
+
+    /**
+     * Start network
+     */
+    public function startup();
+
+    /**
+     * @param bool $enable
+     */
+    public function setDebug( bool $enable );
+
+    /**
+     * @return bool
+     */
+    public function isDebug(): bool;
+
+    /**
+     * @return string
+     */
+    public function getName(): string;
+
 }

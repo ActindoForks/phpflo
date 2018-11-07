@@ -5,7 +5,7 @@ namespace PhpFlo\Core\Interaction;
 use PhpFlo\Common\ComponentInterface;
 use PhpFlo\Common\NodeSpecInterface;
 
-interface NetworkProcessInterface
+interface NetworkProcessInterface extends MetadataInterface
 {
 
     /**
@@ -30,16 +30,6 @@ interface NetworkProcessInterface
      * @return ComponentInterface
      */
     public function getComponent(): ComponentInterface;
-
-    /**
-     * @return array
-     */
-    public function getMetadata(): array;
-
-    /**
-     * @param array $metadata
-     */
-    public function mergeMetadata(array $metadata);
 
     public function __toString(): string;
 }

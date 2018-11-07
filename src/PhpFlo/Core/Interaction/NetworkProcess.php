@@ -8,6 +8,8 @@ use PhpFlo\Common\NodeSpecInterface;
 
 class NetworkProcess implements NetworkProcessInterface
 {
+    use MetadataTrait;
+
     /**
      * @var string $id
      */
@@ -17,11 +19,6 @@ class NetworkProcess implements NetworkProcessInterface
      * @var ComponentInterface $component
      */
     protected $component;
-
-    /**
-     * @var array $metadata
-     */
-    protected $metadata;
 
     /**
      * NetworkProcess constructor.
@@ -49,33 +46,6 @@ class NetworkProcess implements NetworkProcessInterface
     public function getComponent(): ComponentInterface
     {
         return $this->component;
-    }
-
-    /**
-     * @return array
-     */
-    public function getMetadata(): array
-    {
-        return $this->metadata;
-    }
-
-    /**
-     * @param array $metadata
-     */
-    public function mergeMetadata(array $metadata)
-    {
-        if( !is_array($metadata) )
-        {
-            throw new \InvalidArgumentException('$metadata must be an array');
-        }
-        $this->metadata = array_merge( $this->metadata, $metadata );
-        foreach( $this->metadata as $_key => $_value )
-        {
-            if( is_null($_value) )
-            {
-                unset( $this->metadata[$_key] );
-            }
-        }
     }
 
     public function __toString(): string

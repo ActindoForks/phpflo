@@ -66,6 +66,7 @@ trait ComponentTrait
 
     /**
      * @return ComponentInterface
+     * @throws \PhpFlo\Common\Exception\PortException
      */
     public function shutdown(): ComponentInterface
     {

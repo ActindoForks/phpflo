@@ -19,22 +19,8 @@ use PhpFlo\Core\Interaction\PortRegistry;
  * @package PhpFlo\Common
  * @author Henri Bergius <henri.bergius@iki.fi>
  */
-interface ComponentInterface
+interface ComponentInterface extends RegisteredComponentInterface
 {
-    /**
-     * @return string
-     */
-    public function getDescription(): string;
-
-    /**
-     * @return PortRegistry
-     */
-    public function inPorts(): PortRegistry;
-
-    /**
-     * @return PortRegistry
-     */
-    public function outPorts(): PortRegistry;
 
     /**
      * Detach all sockets, disconnect all ports.

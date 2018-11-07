@@ -12,7 +12,9 @@ declare(strict_types=1);
 namespace PhpFlo\Core\Interaction;
 
 use Evenement\EventEmitter;
+use PhpFlo\Common\EdgeEndSpecInterface;
 use PhpFlo\Common\NetworkInterface as Net;
+use PhpFlo\Common\NetworkInterface;
 use PhpFlo\Common\SocketInterface;
 use PhpFlo\Core\Network;
 
@@ -24,6 +26,8 @@ use PhpFlo\Core\Network;
  */
 class InternalSocket extends EventEmitter implements SocketInterface
 {
+    use MetadataTrait;
+
     /**
      * @var bool
      */
@@ -39,17 +43,20 @@ class InternalSocket extends EventEmitter implements SocketInterface
      */
     private $to;
 
+
     /**
      * InternalSocket constructor.
      *
      * @param array $from
      * @param array $to
+     * @param array $metadata
      */
-    public function __construct(array $from = [], array $to = [])
+    public function __construct(array $from = [], array $to = [], array $metadata = [])
     {
         $this->connected = false;
         $this->from = $from;
         $this->to = $to;
+        $this->metadata = $metadata;
     }
 
     /**
@@ -57,14 +64,65 @@ class InternalSocket extends EventEmitter implements SocketInterface
      */
     public function getId(): string
     {
-        if ($this->from && !$this->to) {
-            return "{$this->from[Net::PROCESS][Net::NODE_ID]}.{$this->from[Net::PORT]}:ANON";
+        if( !$this->from )
+        {
+            $fromSpec = 'ANON';
         }
-        if (!$this->from) {
-            return "ANON:{$this->to[Net::PROCESS][Net::NODE_ID]}.{$this->to[Net::PORT]}";
+        else if( isset($this->from[NetworkInterface::INITIAL_DATA]) )
+        {
+            $fromSpec = 'DATA';
+        }
+        else if( isset($this->from[Network::PROCESS]) && is_object($this->from[Network::PROCESS]) )
+        {
+            $fromSpec = $this->from[Network::PROCESS]->getId().'() '.strtoupper($this->from[Network::PORT]);
+        }
+        else
+        {
+            $fromSpec = '???????';
         }
 
-        return "{$this->from[Net::PROCESS][Net::NODE_ID]}.{$this->from[Net::PORT]}:{$this->to[Net::PROCESS][Net::NODE_ID]}.{$this->to[Net::PORT]}";
+
+        if( !$this->to )
+        {
+            $toSpec = 'ANON';
+        }
+        else if( isset($this->to[Network::PROCESS]) && is_object($this->to[Network::PROCESS]) )
+        {
+            $toSpec = strtoupper($this->to[Network::PORT]).' '.$this->to[Network::PROCESS]->getId().'()';
+        }
+        else
+        {
+            $toSpec = '???????';
+        }
+
+        return $fromSpec.' -> '.$toSpec;
+    }
+
+
+    /**
+     * @return EdgeEndSpecInterface|null
+     */
+    public function getSrc()
+    {
+        if( isset($this->from[Network::PROCESS]) && is_object($this->from[Network::PROCESS]) )
+        {
+            $ret = new EdgeEndSpec($this->from[Network::PROCESS]->getId(), $this->from[Network::PORT]);
+            return $ret;
+        }
+        return null;
+    }
+
+    /**
+     * @return EdgeEndSpecInterface|null
+     */
+    public function getTgt()
+    {
+        if( isset($this->to[Network::PROCESS]) && is_object($this->to[Network::PROCESS]) )
+        {
+            $ret = new EdgeEndSpec($this->to[Network::PROCESS]->getId(), $this->to[Network::PORT]);
+            return $ret;
+        }
+        return null;
     }
 
     /**
@@ -173,6 +231,7 @@ class InternalSocket extends EventEmitter implements SocketInterface
                 (is_object($this->from[Network::PROCESS]) ? $this->from[Network::PROCESS]->__toString() : var_dump_string($this->from[Network::PROCESS])) : NULL,
             'fromPort' => isset($this->from[Network::PORT]) ? $this->from[Network::PORT] : NULL,
             'fromInitialData' => isset($this->from[Network::INITIAL_DATA]) ? var_export($this->from[Network::INITIAL_DATA], true) : NULL,
+            'metadata' => $this->getMetadata(),
         ];
     }
 
