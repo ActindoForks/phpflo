@@ -68,7 +68,7 @@ class InternalSocket extends EventEmitter implements SocketInterface
         {
             $fromSpec = 'ANON';
         }
-        else if( isset($this->from[NetworkInterface::INITIAL_DATA]) )
+        else if( array_key_exists(NetworkInterface::INITIAL_DATA, $this->from) )
         {
             $fromSpec = 'DATA';
         }
@@ -230,7 +230,7 @@ class InternalSocket extends EventEmitter implements SocketInterface
             'fromProcess' => isset($this->from[Network::PROCESS]) ?
                 (is_object($this->from[Network::PROCESS]) ? $this->from[Network::PROCESS]->__toString() : var_dump_string($this->from[Network::PROCESS])) : NULL,
             'fromPort' => isset($this->from[Network::PORT]) ? $this->from[Network::PORT] : NULL,
-            'fromInitialData' => isset($this->from[Network::INITIAL_DATA]) ? var_export($this->from[Network::INITIAL_DATA], true) : NULL,
+            'fromInitialData' => array_key_exists(Network::INITIAL_DATA, $this->from) ? var_export($this->from[Network::INITIAL_DATA], true) : NULL,
             'metadata' => $this->getMetadata(),
         ];
     }

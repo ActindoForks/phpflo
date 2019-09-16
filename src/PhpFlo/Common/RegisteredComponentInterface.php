@@ -4,6 +4,7 @@ namespace PhpFlo\Common;
 
 
 use PhpFlo\Core\Interaction\PortRegistry;
+use PhpFlo\Core\Interaction\PortRegistryInterface;
 
 interface RegisteredComponentInterface
 {
@@ -15,11 +16,10 @@ interface RegisteredComponentInterface
     /**
      * @return PortRegistry
      */
-    public function inPorts(): PortRegistry;
+    public function inPorts(): PortRegistryInterface;
 
     /**
      * @return PortRegistry
      */
-    public function outPorts(): PortRegistry;
-
+    public function outPorts(): PortRegistryInterface;
 }

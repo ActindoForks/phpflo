@@ -46,7 +46,7 @@ trait ComponentTrait
     public function inPorts(): PortRegistry
     {
         if (null === $this->inPorts) {
-            $this->inPorts = new PortRegistry();
+            $this->inPorts = new PortRegistry( $this );
         }
 
         return $this->inPorts;
@@ -58,7 +58,7 @@ trait ComponentTrait
     public function outPorts(): PortRegistry
     {
         if (null === $this->outPorts) {
-            $this->outPorts = new PortRegistry();
+            $this->outPorts = new PortRegistry( $this );
         }
 
         return $this->outPorts;
@@ -80,4 +80,6 @@ trait ComponentTrait
 
         return $this;
     }
+
+
 }

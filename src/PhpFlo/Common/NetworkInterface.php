@@ -15,6 +15,7 @@ use PhpFlo\Common\Exception\FlowException;
 use PhpFlo\Common\Exception\InvalidDefinitionException;
 use PhpFlo\Common\Exception\NodeDoesNotExistException;
 use PhpFlo\Core\Graph;
+use PhpFlo\Core\Interaction\EdgeEndSpec;
 use PhpFlo\Core\Interaction\NetworkProcessInterface;
 
 /**
@@ -74,6 +75,13 @@ interface NetworkInterface extends HookableNetworkInterface
     public function addNode(NodeSpecInterface $node): NetworkInterface;
 
     /**
+     * @param string $from
+     * @param string $to
+     * @throws NodeDoesNotExistException
+     */
+    public function renameNode(string $from, string $to);
+
+    /**
      * Add a flow definition as Graph object or definition file/string
      * and initialize the network processes/connections
      *
@@ -84,9 +92,9 @@ interface NetworkInterface extends HookableNetworkInterface
     public function boot($graph): NetworkInterface;
 
     /**
-     * @return null|Graph
+     * @return array
      */
-    public function getGraph();
+    public function serializeJson();
 
     /**
      * @param string $id
@@ -186,5 +194,40 @@ interface NetworkInterface extends HookableNetworkInterface
      * @return string
      */
     public function getName(): string;
+
+    /**
+     * @param string $public
+     * @param EdgeEndSpecInterface $tgt
+     * @param array $metadata
+     * @return void
+     */
+    public function addInPort( string $public, EdgeEndSpecInterface $tgt, array $metadata = [] );
+
+    /**
+     * @param string $public
+     * @throws \PhpFlo\Common\Exception\PortException
+     */
+    public function removeInPort( string $public );
+
+    /**
+     * @param string $public
+     * @param EdgeEndSpecInterface $src
+     * @param array $metadata
+     * @return void
+     */
+    public function addOutPort( string $public, EdgeEndSpecInterface $src, array $metadata = [] );
+
+    /**
+     * @param string $public
+     * @throws \PhpFlo\Common\Exception\PortException
+     */
+    public function removeOutPort( string $public );
+
+    /**
+     * @param string $nodeId
+     * @return EdgeEndSpec[][]
+     * @throws NodeDoesNotExistException
+     */
+    public function findEdgesByNode( string $nodeId );
 
 }

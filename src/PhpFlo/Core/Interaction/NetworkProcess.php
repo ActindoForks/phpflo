@@ -21,13 +21,20 @@ class NetworkProcess implements NetworkProcessInterface
     protected $component;
 
     /**
+     * @var string $componentName
+     */
+    protected $componentName;
+
+    /**
      * NetworkProcess constructor.
      * @param NodeSpecInterface $nodeSpec
      * @param ComponentInterface $component
+     * @param string $componentName
      */
-    public function __construct( NodeSpecInterface $nodeSpec, ComponentInterface $component )
+    public function __construct( NodeSpecInterface $nodeSpec, ComponentInterface $component, string $componentName )
     {
         $this->component = $component;
+        $this->componentName = $componentName;
         $this->id = $nodeSpec->getId();
         $this->metadata = is_array($nodeSpec->getMetadata()) ? $nodeSpec->getMetadata() : [];
     }
@@ -39,6 +46,7 @@ class NetworkProcess implements NetworkProcessInterface
     {
         return $this->id;
     }
+
 
     /**
      * @return ComponentInterface
@@ -62,4 +70,13 @@ class NetworkProcess implements NetworkProcessInterface
     {
         $this->id = $newId;
     }
+
+    /**
+     * @return string
+     */
+    public function getComponentName(): string
+    {
+        return $this->componentName;
+    }
+
 }

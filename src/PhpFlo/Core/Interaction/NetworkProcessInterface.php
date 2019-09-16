@@ -12,8 +12,9 @@ interface NetworkProcessInterface extends MetadataInterface
      * NetworkProcess constructor.
      * @param NodeSpecInterface $nodeSpec
      * @param ComponentInterface $component
+     * @param string $componentName
      */
-    public function __construct( NodeSpecInterface $nodeSpec, ComponentInterface $component );
+    public function __construct( NodeSpecInterface $nodeSpec, ComponentInterface $component, string $componentName );
 
     /**
      * @return string
@@ -32,4 +33,6 @@ interface NetworkProcessInterface extends MetadataInterface
     public function getComponent(): ComponentInterface;
 
     public function __toString(): string;
+
+    public function getComponentName(): string;
 }

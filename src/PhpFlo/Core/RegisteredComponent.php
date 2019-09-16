@@ -5,6 +5,7 @@ namespace PhpFlo\Core;
 use PhpFlo\Common\ComponentInterface;
 use PhpFlo\Common\RegisteredComponentInterface;
 use PhpFlo\Core\Interaction\PortRegistry;
+use PhpFlo\Core\Interaction\PortRegistryInterface;
 
 class RegisteredComponent implements RegisteredComponentInterface
 {
@@ -51,7 +52,7 @@ class RegisteredComponent implements RegisteredComponentInterface
     /**
      * @return PortRegistry
      */
-    public function inPorts(): PortRegistry
+    public function inPorts(): PortRegistryInterface
     {
         if (null === $this->inPorts) {
             $this->inPorts = new PortRegistry();
@@ -63,7 +64,7 @@ class RegisteredComponent implements RegisteredComponentInterface
     /**
      * @return PortRegistry
      */
-    public function outPorts(): PortRegistry
+    public function outPorts(): PortRegistryInterface
     {
         if (null === $this->outPorts) {
             $this->outPorts = new PortRegistry();
